@@ -2,7 +2,7 @@
 
 A powerful Python tool that leverages Claude 3.5 Sonnet Vision API to detect and visualize objects in images. The script automatically draws bounding boxes around detected objects, labels them, and displays confidence scores.
 
-![Example Output](example_output.png) *(You'll need to add your own example image)*
+![Example Output](output/detected_test.webp) *(You'll need to add your own example image)*
 
 ## Features
 
