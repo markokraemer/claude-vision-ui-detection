@@ -2,7 +2,7 @@
 
 A powerful Python tool that leverages Claude 3.5 Sonnet Vision API to detect and visualize objects in images. The script automatically draws bounding boxes around detected objects, labels them, and displays confidence scores.
 
-![Example Output](output/detected_test.webp) *(You'll need to add your own example image)*
+![Example Output](output/detected_test.webp)
 
 ## Features
 
@@ -40,7 +40,7 @@ ANTHROPIC_API_KEY=your_api_key_here
 
 1. Run the script:
 ```bash
-python vision_processor.py
+python main.py
 ```
 
 2. When prompted, enter either:
@@ -52,23 +52,6 @@ python vision_processor.py
    - Draw bounding boxes around detected objects
    - Add labels with confidence scores
    - Save annotated images in an `output` directory
-
-## Example Code
-
-Here's a quick example of how to use the `ClaudeVisionProcessor` class programmatically:
-
-```python
-from vision_processor import ClaudeVisionProcessor
-
-# Initialize the processor
-processor = ClaudeVisionProcessor()
-
-# Process a single image
-result = processor.process_images("path/to/your/image.jpg")
-
-# Process all images in a directory
-result = processor.process_images("path/to/image/directory")
-```
 
 ## Supported Image Formats
 
