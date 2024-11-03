@@ -2,19 +2,21 @@ import os
 import base64
 import json
 from PIL import Image, ImageDraw, ImageFont
+import anthropic
 from typing import List, Dict, Union
 import glob
+import sys
 from dotenv import load_dotenv
 import random
 import colorsys
-from litellm import completion
 
 # Load environment variables from .env file
 load_dotenv()
 
 class UIVisionProcessor:
     def __init__(self):
-        """Initialize the processor with API key from .env."""
+        """Initialize the processor with your Anthropic API key from .env."""
+        self.client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
         self.output_dir = os.path.join(os.getcwd(), 'output')
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -177,17 +179,17 @@ class UIVisionProcessor:
 
         try:
             print("Analyzing images with Claude...")
-            response = completion(
+            response = self.client.messages.create(
                 model="claude-3-5-sonnet-20241022",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": content}
-                ],
                 max_tokens=8000,
-                api_key=os.getenv('ANTHROPIC_API_KEY')
+                system=system_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": content
+                }]
             )
 
-            response_text = response.choices[0].message.content
+            response_text = response.content[0].text
             json_start = response_text.find('{')
             json_end = response_text.rfind('}') + 1
 
@@ -313,8 +315,8 @@ class UIVisionProcessor:
             raise
 
 def main():
-    """Process UI screenshots with LiteLLM"""
-    print("\n=== LiteLLM UI Analysis ===")
+    """Process UI screenshots with Claude Vision API"""
+    print("\n=== Claude Vision UI Analysis ===")
     print("Enter the path to a UI screenshot or a directory containing screenshots.")
     input_path = input("\nPath: ").strip()
 
