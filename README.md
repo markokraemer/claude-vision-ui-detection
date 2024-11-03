@@ -81,27 +81,6 @@ result = processor.process_images("path/to/image/directory")
 
 The script creates an `output` directory in the current working directory. Processed images are saved with the prefix `detected_` followed by the original filename.
 
-## Advanced Features
-
-### Custom Color Generation
-
-The script uses a sophisticated color generation algorithm based on the golden ratio to ensure visually distinct colors for each detected object:
-
-```python
-def get_random_color(self):
-    """Generate a random vibrant color using HSV color space."""
-    golden_ratio = 0.618033988749895
-    hue = (random.random() + golden_ratio) % 1.0
-    saturation = 0.85 + random.random() * 0.15
-    value = 0.85 + random.random() * 0.15
-    rgb = colorsys.hsv_to_rgb(hue, saturation, value)
-    return '#{:02x}{:02x}{:02x}'.format(
-        int(rgb[0] * 255),
-        int(rgb[1] * 255),
-        int(rgb[2] * 255)
-    )
-```
-
 ### Error Handling
 
 The script includes comprehensive error handling for:
