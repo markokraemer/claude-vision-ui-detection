@@ -2,22 +2,19 @@ import os
 import base64
 import json
 from PIL import Image, ImageDraw, ImageFont
-import anthropic
 from typing import List, Dict, Union
 import glob
-import sys
 from dotenv import load_dotenv
 import random
 import colorsys
+from litellm import completion
 
 # Load environment variables from .env file
 load_dotenv()
 
-class ClaudeVisionProcessor:
+class UIVisionProcessor:
     def __init__(self):
-        """Initialize the processor with your Anthropic API key from .env."""
-        self.client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
-        # Create output directory in current path
+        """Initialize the processor with API key from .env."""
         self.output_dir = os.path.join(os.getcwd(), 'output')
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -39,7 +36,7 @@ class ClaudeVisionProcessor:
         return encoded_string, media_type
 
     def process_images(self, image_paths: Union[str, List[str]]) -> Dict:
-        """Process images to detect objects and their bounding boxes."""
+        """Process images to detect UI elements and their bounding boxes."""
         if isinstance(image_paths, str):
             if os.path.isdir(image_paths):
                 image_paths = []
@@ -63,6 +60,7 @@ class ClaudeVisionProcessor:
             })
 
             try:
+                # Directly encode the original image
                 encoded_image, media_type = self.encode_image(img_path)
                 content.append({
                     "type": "image",
@@ -73,47 +71,123 @@ class ClaudeVisionProcessor:
                     }
                 })
             except Exception as e:
-                print(f"Error encoding image {img_path}: {str(e)}")
+                print(f"Error processing image {img_path}: {str(e)}")
                 continue
 
-        # Specific system prompt for precise bounding box detection
         system_prompt = """
-        You are an expert computer vision system. First describe the image in accurate details, then analyze the provided images and return ONLY a JSON object containing bounding boxes. Be super precise and try to detect as many objects as possible.
-        Be accurate and try to detect as many objects as possible. Really open your eyes and see the world.
+        You are a precise UI element detection system specialized in identifying EVERY visual component in user interfaces. 
 
-        Follow these strict rules:
-        1. Output MUST be valid JSON with no additional text
-        2. Each detected object must have:
-           - 'element': descriptive name of the object
-           - 'bbox': [x1, y1, x2, y2] coordinates (normalized 0-1)
-           - 'confidence': confidence score (0-1)
-        3. Use this exact format:
-           {
-             "image_number": [
-               {
-                 "element": "object_name",
-                 "bbox": [x1, y1, x2, y2],
-                 "confidence": 0.95
-               }
-             ]
-           }
-        4. Coordinates must be precise and properly normalized
-        5. DO NOT include any explanation or additional text
+        YOUR TASK:
+        Detect and locate every single visual element in the UI with pixel-perfect accuracy.
+
+        OUTPUT FORMAT:
+        {
+            "image_number": [
+                {
+                    "element": "specific-element-type",
+                    "label": "exact-content-or-purpose",
+                    "bbox": [x1, y1, x2, y2],
+                    "confidence": confidence_score
+                }
+            ]
+        }
+
+        BOUNDING BOX GUIDELINES:
+        1. Tight Boundaries:
+           - Boxes should tightly wrap around elements
+           - Include padding/margins only if they're part of the element
+           - For text, capture the exact text bounds
+           - For buttons, include the full clickable area
+           - For icons, include only the icon artwork
+
+        2. Nested Elements:
+           - Detect both containers and their contents
+           - Menu items within dropdowns
+           - Text within buttons
+           - Icons within buttons
+           - Labels within form fields
+
+        3. Common UI Patterns:
+           - Navigation bars: [0.0, 0.0, 1.0, 0.08] (full width, top)
+           - Sidebars: [0.0, 0.0, 0.25, 1.0] (full height, left side)
+           - Modal dialogs: centered, with padding
+           - Buttons: include full padding and borders
+           - Text fields: include borders and internal padding
+
+        4. Precision Requirements:
+           - Use 4 decimal places for coordinates
+           - Ensure x2 > x1 and y2 > y1
+           - Coordinates must be normalized (0-1)
+           - No overlapping boxes unless elements truly overlap
+           - No gaps between adjacent elements
+
+        ELEMENT HIERARCHY:
+        1. Page Structure:
+           - header
+           - main-content
+           - sidebar
+           - footer
+
+        2. Navigation:
+           - nav-bar
+           - nav-item
+           - nav-dropdown
+           - breadcrumb
+
+        3. Content:
+           - heading-1 (main title)
+           - heading-2 (section titles)
+           - heading-3 (subsections)
+           - paragraph-text
+           - list-item
+           - table-cell
+
+        4. Interactive:
+           - button-primary (main actions)
+           - button-secondary (optional actions)
+           - input-field (form inputs)
+           - checkbox
+           - radio-button
+           - dropdown-select
+
+        5. Media:
+           - icon (interface icons)
+           - image (content images)
+           - avatar (user images)
+           - logo (brand images)
+
+        6. Status/Feedback:
+           - alert-message
+           - progress-bar
+           - loading-spinner
+           - tooltip
+           - badge
+
+        CRITICAL RULES:
+        1. PRECISION - Coordinates must perfectly match visual boundaries
+        2. COMPLETENESS - Detect every element, no matter how small
+        3. HIERARCHY - Maintain proper nesting of elements
+        4. NO OVERLAP - Unless elements truly overlap in UI
+        5. NO GAPS - Adjacent elements should touch exactly
+        6. CONSISTENCY - Similar elements should have similar sizes
+        7. OUTPUT - Return only valid JSON, no explanations
+
+        Remember: Your coordinate accuracy directly affects the usability of the UI analysis.
         """
 
         try:
             print("Analyzing images with Claude...")
-            response = self.client.messages.create(
+            response = completion(
                 model="claude-3-5-sonnet-20241022",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content}
+                ],
                 max_tokens=8000,
-                system=system_prompt,
-                messages=[{
-                    "role": "user",
-                    "content": content
-                }]
+                api_key=os.getenv('ANTHROPIC_API_KEY')
             )
 
-            response_text = response.content[0].text
+            response_text = response.choices[0].message.content
             json_start = response_text.find('{')
             json_end = response_text.rfind('}') + 1
 
@@ -150,57 +224,98 @@ class ClaudeVisionProcessor:
         )
 
     def draw_bounding_boxes(self, image_path: str, bboxes: List[Dict]):
-        """Draw bounding boxes on an image and save the result."""
+        """Draw bounding boxes on a UI screenshot and save the result."""
         try:
-            image = Image.open(image_path)  # Remove the .convert('RGBA')
+            # Open original image directly
+            image = Image.open(image_path)
             draw = ImageDraw.Draw(image)
             width, height = image.size
 
-            # Try to load a larger font, fall back to default if not available
+            font_size = int(height * 0.015)  # Scale font to image height
             try:
-                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 36)  # Larger font size
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
             except:
                 font = ImageFont.load_default()
 
+            color_map = {
+                'text': '#FF4444',     # Red for text
+                'button': '#44FF44',   # Green for buttons
+                'input': '#4444FF',    # Blue for inputs
+                'icon': '#FFFF44',     # Yellow for icons
+                'container': '#FF44FF', # Purple for containers
+                'nav': '#44FFFF',      # Cyan for navigation
+                'image': '#FF8844',    # Orange for images
+                'status': '#88FF44',   # Lime for status elements
+                'modal': '#FF4488',    # Pink for modals
+                'list': '#4488FF',     # Light blue for lists
+            }
+
             for bbox in bboxes:
-                # Get a random bright color for this box
-                color = self.get_random_color()
+                try:
+                    element_type = bbox.get('element', 'unknown').lower()
+                    base_type = next((k for k in color_map.keys() if k in element_type), 'unknown')
+                    color = color_map.get(base_type, self.get_random_color())
 
-                x1, y1, x2, y2 = bbox['bbox']
-                x1, x2 = x1 * width, x2 * width
-                y1, y2 = y1 * height, y2 * height
+                    # Convert normalized coordinates to pixel coordinates
+                    x1, y1, x2, y2 = bbox['bbox']
+                    x1, x2 = sorted([x1 * width, x2 * width])
+                    y1, y2 = sorted([y1 * height, y2 * height])
 
-                # Draw rectangle with thicker outline
-                draw.rectangle([x1, y1, x2, y2], outline=color.strip(), width=4)
+                    # Validate coordinates
+                    x1 = max(0, min(x1, width))
+                    x2 = max(0, min(x2, width))
+                    y1 = max(0, min(y1, height))
+                    y2 = max(0, min(y2, height))
 
-                # Draw label with confidence
-                label = f"{bbox['element']} ({bbox['confidence']:.2f})"
+                    if x2 - x1 < 2 or y2 - y1 < 2:
+                        continue
 
-                # Get text size for background
-                text_bbox = draw.textbbox((x1, y1-40), label, font=font)
-                text_width = text_bbox[2] - text_bbox[0]
-                text_height = text_bbox[3] - text_bbox[1]
+                    draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
 
-                # Draw black background for text for better visibility
-                draw.rectangle([x1, y1-40, x1+text_width, y1-40+text_height],
-                             fill=(0, 0, 0))
+                    # Create label
+                    label_parts = []
+                    if 'element' in bbox:
+                        label_parts.append(bbox['element'])
+                    if 'label' in bbox:
+                        label_parts.append(f": {bbox['label']}")
+                    if 'confidence' in bbox:
+                        label_parts.append(f" ({bbox['confidence']:.2f})")
+                    
+                    label = "".join(label_parts) if label_parts else "Unknown Element"
 
-                # Draw text
-                draw.text((x1, y1-40), label, fill=color.strip(), font=font)
+                    # Draw label with background
+                    label_y = max(font_size, y1 - font_size)
+                    text_bbox = draw.textbbox((x1, label_y), label, font=font)
+                    text_width = text_bbox[2] - text_bbox[0]
+                    text_height = text_bbox[3] - text_bbox[1]
 
-            # Save to output directory
+                    bg_x1 = min(max(0, x1), width - text_width)
+                    bg_x2 = min(bg_x1 + text_width, width)
+                    bg_y1 = min(max(0, label_y), height - text_height)
+                    bg_y2 = min(bg_y1 + text_height, height)
+
+                    draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2],
+                                 fill=(0, 0, 0, 180))
+                    draw.text((bg_x1, bg_y1), label, fill=color, font=font)
+
+                except Exception as e:
+                    print(f"Warning: Skipping invalid bounding box: {str(e)}")
+                    continue
+
+            # Save output
             basename = os.path.basename(image_path)
-            output_path = os.path.join(self.output_dir, f'detected_{basename}')
+            output_path = os.path.join(self.output_dir, f'ui_analyzed_{basename}')
             image.save(output_path)
-            print(f"Saved annotated image to: {output_path}")
+            print(f"Saved annotated UI analysis to: {output_path}")
 
         except Exception as e:
-            print(f"Error drawing bounding boxes for {image_path}: {str(e)}")
+            print(f"Error drawing UI annotations for {image_path}: {str(e)}")
+            raise
 
 def main():
-    """Process images with Claude Vision API"""
-    print("\n=== Claude Vision Object Detection ===")
-    print("Enter the path to an image file or a directory containing images.")
+    """Process UI screenshots with LiteLLM"""
+    print("\n=== LiteLLM UI Analysis ===")
+    print("Enter the path to a UI screenshot or a directory containing screenshots.")
     input_path = input("\nPath: ").strip()
 
     if not os.path.exists(input_path):
@@ -208,13 +323,12 @@ def main():
         return
 
     try:
-        processor = ClaudeVisionProcessor()
+        processor = UIVisionProcessor()
         result = processor.process_images(input_path)
 
         if result:
             for image_num, bboxes in result.items():
                 if os.path.isdir(input_path):
-                    # Find matching image in directory
                     images = glob.glob(os.path.join(input_path, f'*{image_num}.*'))
                     if images:
                         image_path = images[0]
