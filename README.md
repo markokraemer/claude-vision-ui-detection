@@ -22,7 +22,7 @@ A powerful Python tool that leverages Claude 3.5 Sonnet Vision API to detect and
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/claude-vision-detection.git
+git clone https://github.com/doriandarko/claude-vision-object-detection.git
 cd claude-vision-detection
 ```
 
